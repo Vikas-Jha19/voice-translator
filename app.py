@@ -1,11 +1,11 @@
 """
 Multilingual Voice Translation System
-Uses Hugging Face Inference API
+Uses public HF Spaces via Gradio Client (most reliable)
 """
 
 import gradio as gr
+from gradio_client import Client
 import os
-from huggingface_hub import InferenceClient
 import tempfile
 from gtts import gTTS
 import time
@@ -14,23 +14,10 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize HF client with explicit token
-hf_token = os.environ.get("HF_TOKEN")
-if not hf_token:
-    raise ValueError("HF_TOKEN environment variable is required!")
-
-client = InferenceClient(token=hf_token)
-
 LANGUAGES = {
     "hi": "Hindi", "en": "English", "ta": "Tamil", "te": "Telugu",
     "kn": "Kannada", "ml": "Malayalam", "mr": "Marathi", "bn": "Bengali",
     "gu": "Gujarati", "pa": "Punjabi"
-}
-
-NLLB_CODES = {
-    "hi": "hin_Deva", "en": "eng_Latn", "ta": "tam_Taml", "te": "tel_Telu",
-    "kn": "kan_Knda", "ml": "mal_Mlym", "mr": "mar_Deva", "bn": "ben_Beng",
-    "gu": "guj_Gujr", "pa": "pan_Guru"
 }
 
 def translate(audio, src_lang, tgt_lang):
@@ -52,17 +39,17 @@ def translate(audio, src_lang, tgt_lang):
     try:
         start = time.time()
         
-        # ASR - Use Whisper Base (faster, reliable)
+        # ASR via public Whisper Space
         logger.info("Starting ASR...")
-        with open(audio, "rb") as f:
-            audio_bytes = f.read()
-        
-        # Use Whisper via direct model inference
-        result = client.automatic_speech_recognition(
-            audio_bytes,
-            model="openai/whisper-base"  # Base model - more reliable
+        whisper_client = Client("openai/whisper")
+        asr_result = whisper_client.predict(
+            audio,
+            "transcribe",
+            api_name="/predict"
         )
-        src_text = result.get("text", "").strip()
+        # Result format: (transcription, None)
+        src_text = asr_result[0] if isinstance(asr_result, tuple) else str(asr_result)
+        src_text = src_text.strip()
         
         if not src_text:
             return None, "ASR failed - no text extracted", "", ""
@@ -70,24 +57,29 @@ def translate(audio, src_lang, tgt_lang):
         asr_time = time.time() - start
         logger.info(f"ASR complete: {src_text}")
         
-        # Translation - Use NLLB
+        # Translation via NLLB Space
         logger.info("Starting translation...")
         trans_start = time.time()
         
-        src_code = NLLB_CODES.get(src, "hin_Deva")
-        tgt_code = NLLB_CODES.get(tgt, "eng_Latn")
+        # Map to NLLB codes
+        nllb_map = {
+            "hi": "Hindi", "en": "English", "ta": "Tamil", "te": "Telugu",
+            "kn": "Kannada", "ml": "Malayalam", "mr": "Marathi", 
+            "bn": "Bengali", "gu": "Gujarati", "pa": "Punjabi"
+        }
         
-        trans_result = client.translation(
+        nllb_client = Client("facebook/seamless_m4t")
+        trans_result = nllb_client.predict(
             src_text,
-            model="facebook/nllb-200-distilled-600M",
-            src_lang=src_code,
-            tgt_lang=tgt_code
+            nllb_map.get(src, "Hindi"),
+            nllb_map.get(tgt, "English"),
+            api_name="/translate"
         )
-        tgt_text = trans_result.get("translation_text", "")
+        tgt_text = str(trans_result).strip()
         trans_time = time.time() - trans_start
         logger.info(f"Translation complete: {tgt_text}")
         
-        # TTS - Use Google TTS
+        # TTS
         logger.info("Starting TTS...")
         tts_start = time.time()
         tts_codes = {
@@ -115,7 +107,7 @@ def translate(audio, src_lang, tgt_lang):
         logger.error(error)
         return None, error, "", ""
 
-# Simple interface
+# Build interface
 demo = gr.Interface(
     fn=translate,
     inputs=[
@@ -129,11 +121,15 @@ demo = gr.Interface(
         gr.Textbox(label="Translation", lines=3),
         gr.Textbox(label="Processing Time")
     ],
-    title="🌍 Multilingual Voice Translation",
-    description="Real-time voice translation using Whisper + NLLB-600M + Google TTS"
+    title="🌍 Voice Translation System",
+    description="Multilingual voice translation"
 )
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    logger.info(f"Starting server on port {port}")
-    demo.launch(server_name="0.0.0.0", server_port=port)
+    logger.info(f"Starting on port {port}")
+    demo.launch(
+        server_name="0.0.0.0",
+        server_port=port,
+        share=False
+    )
