@@ -14,9 +14,12 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize HF client
+# Initialize HF client with explicit token
 hf_token = os.environ.get("HF_TOKEN")
-client = InferenceClient(token=hf_token) if hf_token else InferenceClient()
+if not hf_token:
+    raise ValueError("HF_TOKEN environment variable is required!")
+
+client = InferenceClient(token=hf_token)
 
 LANGUAGES = {
     "hi": "Hindi", "en": "English", "ta": "Tamil", "te": "Telugu",
@@ -49,31 +52,49 @@ def translate(audio, src_lang, tgt_lang):
     try:
         start = time.time()
         
-        # ASR
+        # ASR - Use Whisper Base (faster, reliable)
+        logger.info("Starting ASR...")
         with open(audio, "rb") as f:
-            result = client.automatic_speech_recognition(
-                f.read(),
-                model="openai/whisper-large-v3"
-            )
-        src_text = result["text"].strip()
-        asr_time = time.time() - start
+            audio_bytes = f.read()
         
-        # Translation
+        # Use Whisper via direct model inference
+        result = client.automatic_speech_recognition(
+            audio_bytes,
+            model="openai/whisper-base"  # Base model - more reliable
+        )
+        src_text = result.get("text", "").strip()
+        
+        if not src_text:
+            return None, "ASR failed - no text extracted", "", ""
+            
+        asr_time = time.time() - start
+        logger.info(f"ASR complete: {src_text}")
+        
+        # Translation - Use NLLB
+        logger.info("Starting translation...")
         trans_start = time.time()
-        trans = client.translation(
+        
+        src_code = NLLB_CODES.get(src, "hin_Deva")
+        tgt_code = NLLB_CODES.get(tgt, "eng_Latn")
+        
+        trans_result = client.translation(
             src_text,
             model="facebook/nllb-200-distilled-600M",
-            src_lang=NLLB_CODES.get(src, "hin_Deva"),
-            tgt_lang=NLLB_CODES.get(tgt, "eng_Latn")
+            src_lang=src_code,
+            tgt_lang=tgt_code
         )
-        tgt_text = trans["translation_text"]
+        tgt_text = trans_result.get("translation_text", "")
         trans_time = time.time() - trans_start
+        logger.info(f"Translation complete: {tgt_text}")
         
-        # TTS
+        # TTS - Use Google TTS
+        logger.info("Starting TTS...")
         tts_start = time.time()
-        tts_codes = {"hi": "hi", "en": "en", "ta": "ta", "te": "te",
-                     "kn": "kn", "ml": "ml", "mr": "mr", "bn": "bn",
-                     "gu": "gu", "pa": "pa"}
+        tts_codes = {
+            "hi": "hi", "en": "en", "ta": "ta", "te": "te",
+            "kn": "kn", "ml": "ml", "mr": "mr", "bn": "bn",
+            "gu": "gu", "pa": "pa"
+        }
         tts = gTTS(text=tgt_text, lang=tts_codes.get(tgt, "en"), slow=False)
         out = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
         tts.save(out.name)
@@ -85,12 +106,14 @@ def translate(audio, src_lang, tgt_lang):
             out.name,
             f"**Source ({src_lang}):** {src_text}",
             f"**Target ({tgt_lang}):** {tgt_text}",
-            f"ASR: {asr_time:.1f}s | Translation: {trans_time:.1f}s | TTS: {tts_time:.1f}s | Total: {total:.1f}s"
+            f"⚡ ASR: {asr_time:.1f}s | Translation: {trans_time:.1f}s | TTS: {tts_time:.1f}s | Total: {total:.1f}s"
         )
         
     except Exception as e:
-        logger.error(f"Error: {e}")
-        return None, str(e), "", ""
+        import traceback
+        error = f"Error: {str(e)}\n\n{traceback.format_exc()}"
+        logger.error(error)
+        return None, error, "", ""
 
 # Simple interface
 demo = gr.Interface(
@@ -106,11 +129,11 @@ demo = gr.Interface(
         gr.Textbox(label="Translation", lines=3),
         gr.Textbox(label="Processing Time")
     ],
-    title="Voice Translation System",
-    description="Multilingual voice translation using Whisper Large V3 + NLLB-600M"
+    title="🌍 Multilingual Voice Translation",
+    description="Real-time voice translation using Whisper + NLLB-600M + Google TTS"
 )
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    logger.info(f"Starting on port {port}")
+    logger.info(f"Starting server on port {port}")
     demo.launch(server_name="0.0.0.0", server_port=port)
