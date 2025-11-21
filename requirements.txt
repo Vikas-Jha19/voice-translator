@@ -1,0 +1,9 @@
+openai-whisper
+transformers
+torch
+sentencepiece
+accelerate
+gtts
+soundfile
+scipy
+numpy
