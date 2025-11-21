@@ -1,10 +1,4 @@
 gradio
-openai-whisper
-transformers
-torch
-sentencepiece
-accelerate
+gradio-client
 gtts
 soundfile
-scipy
-numpy
