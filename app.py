@@ -53,7 +53,7 @@ logger.info("Initializing models...")
 try:
     # ASR: Whisper Large V3 (state-of-the-art multilingual ASR)
     logger.info("Loading Whisper Large V3...")
-    asr_model = whisper.load_model("medium")
+    asr_model = whisper.load_model("base")
     
     # NMT: NLLB-600M (best open-source translation for 200+ languages)
     logger.info("Loading NLLB-200-distilled-600M...")
