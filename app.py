@@ -1,18 +1,27 @@
 """
 Multilingual Voice Translation System
-Uses public HF Spaces via Gradio Client (most reliable)
+Optimized for Render Free Tier - Complete Voice Pipeline
 """
 
 import gradio as gr
-from gradio_client import Client
 import os
+import whisper
 import tempfile
 from gtts import gTTS
 import time
 import logging
+from googletrans import Translator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Load tiny Whisper model (only 39MB - fits in free tier!)
+logger.info("Loading Whisper Tiny model...")
+asr_model = whisper.load_model("tiny")
+logger.info("Model loaded successfully!")
+
+# Initialize translator
+translator = Translator()
 
 LANGUAGES = {
     "hi": "Hindi", "en": "English", "ta": "Tamil", "te": "Telugu",
@@ -20,15 +29,22 @@ LANGUAGES = {
     "gu": "Gujarati", "pa": "Punjabi"
 }
 
-def translate(audio, src_lang, tgt_lang):
+LANG_CODES = {
+    "Hindi": "hi", "English": "en", "Tamil": "ta", "Telugu": "te",
+    "Kannada": "kn", "Malayalam": "ml", "Marathi": "mr", "Bengali": "bn",
+    "Gujarati": "gu", "Punjabi": "pa"
+}
+
+def translate_voice(audio, src_lang, tgt_lang):
+    """Complete voice translation pipeline"""
+    
     if audio is None:
         return None, "Please provide audio input", "", ""
     
-    lang_map = {v: k for k, v in LANGUAGES.items()}
-    src = lang_map.get(src_lang, "hi")
-    tgt = lang_map.get(tgt_lang, "en")
+    src_code = LANG_CODES.get(src_lang, "hi")
+    tgt_code = LANG_CODES.get(tgt_lang, "en")
     
-    # Handle microphone
+    # Handle microphone input (tuple format)
     if isinstance(audio, tuple):
         import soundfile as sf
         sr, data = audio
@@ -37,69 +53,63 @@ def translate(audio, src_lang, tgt_lang):
         audio = tmp.name
     
     try:
-        start = time.time()
+        start_time = time.time()
         
-        # ASR via public Whisper Space
-        logger.info("Starting ASR...")
-        whisper_client = Client("openai/whisper")
-        asr_result = whisper_client.predict(
+        # Stage 1: Speech Recognition (Whisper Tiny)
+        logger.info(f"ASR: Transcribing {src_lang}...")
+        asr_result = asr_model.transcribe(
             audio,
-            "transcribe",
-            api_name="/predict"
+            language=src_code,
+            task="transcribe"
         )
-        # Result format: (transcription, None)
-        src_text = asr_result[0] if isinstance(asr_result, tuple) else str(asr_result)
-        src_text = src_text.strip()
+        source_text = asr_result["text"].strip()
         
-        if not src_text:
-            return None, "ASR failed - no text extracted", "", ""
-            
-        asr_time = time.time() - start
-        logger.info(f"ASR complete: {src_text}")
+        if not source_text:
+            return None, "No speech detected in audio", "", ""
         
-        # Translation via NLLB Space
-        logger.info("Starting translation...")
+        asr_time = time.time() - start_time
+        logger.info(f"Transcription: {source_text}")
+        
+        # Stage 2: Translation (Google Translate)
+        logger.info(f"Translating: {src_lang} → {tgt_lang}...")
         trans_start = time.time()
         
-        # Map to NLLB codes
-        nllb_map = {
-            "hi": "Hindi", "en": "English", "ta": "Tamil", "te": "Telugu",
-            "kn": "Kannada", "ml": "Malayalam", "mr": "Marathi", 
-            "bn": "Bengali", "gu": "Gujarati", "pa": "Punjabi"
-        }
-        
-        nllb_client = Client("facebook/seamless_m4t")
-        trans_result = nllb_client.predict(
-            src_text,
-            nllb_map.get(src, "Hindi"),
-            nllb_map.get(tgt, "English"),
-            api_name="/translate"
+        translation_result = translator.translate(
+            source_text,
+            src=src_code,
+            dest=tgt_code
         )
-        tgt_text = str(trans_result).strip()
+        target_text = translation_result.text
+        
         trans_time = time.time() - trans_start
-        logger.info(f"Translation complete: {tgt_text}")
+        logger.info(f"Translation: {target_text}")
         
-        # TTS
-        logger.info("Starting TTS...")
+        # Stage 3: Text-to-Speech (Google TTS)
+        logger.info(f"TTS: Generating {tgt_lang} audio...")
         tts_start = time.time()
-        tts_codes = {
-            "hi": "hi", "en": "en", "ta": "ta", "te": "te",
-            "kn": "kn", "ml": "ml", "mr": "mr", "bn": "bn",
-            "gu": "gu", "pa": "pa"
-        }
-        tts = gTTS(text=tgt_text, lang=tts_codes.get(tgt, "en"), slow=False)
-        out = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-        tts.save(out.name)
+        
+        tts = gTTS(text=target_text, lang=tgt_code, slow=False)
+        output_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+        tts.save(output_audio.name)
+        
         tts_time = time.time() - tts_start
+        total_time = time.time() - start_time
         
-        total = time.time() - start
+        # Format outputs
+        transcription = f"**Source ({src_lang}):**\n\n{source_text}"
+        translation = f"**Target ({tgt_lang}):**\n\n{target_text}"
+        timing = f"""**Processing Time:**
+- Speech Recognition: {asr_time:.2f}s
+- Translation: {trans_time:.2f}s
+- Speech Synthesis: {tts_time:.2f}s
+- **Total: {total_time:.2f}s**
+
+**Models Used:**
+- ASR: Whisper Tiny (39MB)
+- Translation: Google Translate
+- TTS: Google Text-to-Speech"""
         
-        return (
-            out.name,
-            f"**Source ({src_lang}):** {src_text}",
-            f"**Target ({tgt_lang}):** {tgt_text}",
-            f"⚡ ASR: {asr_time:.1f}s | Translation: {trans_time:.1f}s | TTS: {tts_time:.1f}s | Total: {total:.1f}s"
-        )
+        return output_audio.name, transcription, translation, timing
         
     except Exception as e:
         import traceback
@@ -107,29 +117,68 @@ def translate(audio, src_lang, tgt_lang):
         logger.error(error)
         return None, error, "", ""
 
-# Build interface
+# Build Gradio Interface
+language_list = list(LANGUAGES.values())
+
 demo = gr.Interface(
-    fn=translate,
+    fn=translate_voice,
     inputs=[
-        gr.Audio(sources=["microphone", "upload"], type="filepath", label="Audio Input"),
-        gr.Dropdown(list(LANGUAGES.values()), label="Source Language", value="Hindi"),
-        gr.Dropdown(list(LANGUAGES.values()), label="Target Language", value="English")
+        gr.Audio(
+            sources=["microphone", "upload"],
+            type="filepath",
+            label="🎤 Record or Upload Audio"
+        ),
+        gr.Dropdown(
+            choices=language_list,
+            label="Source Language",
+            value="Hindi"
+        ),
+        gr.Dropdown(
+            choices=language_list,
+            label="Target Language",
+            value="English"
+        )
     ],
     outputs=[
-        gr.Audio(label="Translated Audio", type="filepath"),
-        gr.Textbox(label="Transcription", lines=3),
-        gr.Textbox(label="Translation", lines=3),
-        gr.Textbox(label="Processing Time")
+        gr.Audio(
+            label="🔊 Translated Audio",
+            type="filepath"
+        ),
+        gr.Textbox(
+            label="📝 Original Transcription",
+            lines=3
+        ),
+        gr.Textbox(
+            label="🌍 Translation",
+            lines=3
+        ),
+        gr.Textbox(
+            label="⚡ Performance Metrics",
+            lines=8
+        )
     ],
-    title="🌍 Voice Translation System",
-    description="Multilingual voice translation"
+    title="🌍 Multilingual Voice Translation System",
+    description="""
+    **Real-time voice translation for Indian languages**
+    
+    Speak or upload audio → Get instant translation with synthesized speech
+    
+    Supports: Hindi, English, Tamil, Telugu, Kannada, Malayalam, Marathi, Bengali, Gujarati, Punjabi
+    """,
+    examples=[
+        [None, "Hindi", "English"],
+        [None, "Tamil", "English"],
+        [None, "English", "Hindi"]
+    ]
 )
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    logger.info(f"Starting on port {port}")
+    logger.info(f"🚀 Starting server on port {port}")
+    
     demo.launch(
         server_name="0.0.0.0",
         server_port=port,
-        share=False
+        share=False,
+        show_error=True
     )
