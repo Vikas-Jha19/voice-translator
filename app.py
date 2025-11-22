@@ -1,6 +1,6 @@
 """
 Multilingual Voice Translation System
-Powered by Whisper Tiny + Google Translate + gTTS
+Python 3.13 Compatible
 """
 
 import streamlit as st
@@ -8,7 +8,7 @@ import whisper
 import tempfile
 from gtts import gTTS
 import time
-from googletrans import Translator
+from deep_translator import GoogleTranslator
 import os
 
 # Page config
@@ -28,10 +28,8 @@ def load_model():
 if 'model' not in st.session_state:
     with st.spinner("🔄 Loading AI models..."):
         st.session_state.model = load_model()
-        st.session_state.translator = Translator()
 
 model = st.session_state.model
-translator = st.session_state.translator
 
 # Language mapping
 LANGUAGES = {
@@ -108,16 +106,12 @@ if translate_btn:
                 if not source_text:
                     st.error("❌ No speech detected in audio")
                 else:
-                    # Stage 2: Translation
+                    # Stage 2: Translation (using deep-translator - Python 3.13 compatible)
                     st.info(f"🌍 Translating to {tgt_lang_name}...")
                     trans_start = time.time()
                     
-                    translation = translator.translate(
-                        source_text,
-                        src=src_code,
-                        dest=tgt_code
-                    )
-                    target_text = translation.text
+                    translator = GoogleTranslator(source=src_code, target=tgt_code)
+                    target_text = translator.translate(source_text)
                     trans_time = time.time() - trans_start
                     
                     # Stage 3: Text-to-Speech
@@ -170,7 +164,7 @@ st.markdown("---")
 st.markdown("""
 **🛠️ Tech Stack:**
 - ASR: OpenAI Whisper Tiny (39MB)
-- Translation: Google Translate
+- Translation: Google Translate (deep-translator)
 - TTS: Google Text-to-Speech
 
 **🌐 Supported Languages:**
