@@ -8,68 +8,52 @@ from deep_translator import GoogleTranslator
 import os
 
 # -----------------------------------------------------------------------------
-# PROFESSIONAL STYLING & BRANDING REMOVAL (CSS)
+# PROFESSIONAL STYLING & MOBILE-FIRST BRANDING REMOVAL (CSS)
 # -----------------------------------------------------------------------------
 st.markdown("""
 <style>
-/* Remove Streamlit default branding/header/footer/deploy */
+/* --- Remove Streamlit default branding/footer/deploy/menu/header --- */
 #MainMenu, footer, .stDeployButton, header {visibility: hidden; height: 0 !important;}
 footer:after, .st-emotion-cache-6qob1r, .st-emotion-cache-1v0mbdj, [data-testid="stFooter"] {display: none !important;}
-
 .stApp {
     background-color: #f8fafc !important;
     background-image: radial-gradient(#e2e8f0 1px, transparent 1px);
     background-size: 20px 20px;
     padding-bottom: 0 !important;
 }
-
-/* Responsive card styling */
-@media (max-width: 768px) {
-    [data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {
-        margin: 0.5rem 0;
-        padding: 1rem;
-        border-radius: 10px;
-        box-shadow: 0 2px 8px rgba(37,99,235,0.08);
+/* --- Mobile-first improvements --- */
+@media (max-width: 500px) {
+    .stApp {padding: 0 !important;}
+    .stButton>button, .stSelectbox, .stTabs [data-baseweb="tab-list"], .stFileUploader, .result-card {
+        width: 100% !important; min-width: 0 !important; font-size: 16px !important;
     }
+    h1, h2, h3 {font-size: 1.4rem !important;}
+    .result-card {padding: 0.7rem !important;}
+    .footer, .custom-footer {font-size: 11px !important; margin-top: 10px !important; margin-bottom: 4px !important;}
+}
+.stButton>button, .stSelectbox, .stFileUploader, .result-card {
+    width: 100% !important; min-width: 0 !important;
 }
 .result-card {
-    background: #ffffff;
-    border-radius: 12px;
-    padding: 1.1rem;
-    border: 1px solid #e2e8f0;
-    margin-bottom: 1rem;
-    box-shadow: 0 1px 6px rgba(37,99,235,0.06);
+    background: #ffffff; border-radius: 12px; padding: 1.1rem; border: 1px solid #e2e8f0;
+    margin-bottom: 1rem; box-shadow: 0 1px 6px rgba(37,99,235,0.06);
 }
 .result-label {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: #64748b;
-    margin-bottom: 0.5rem;
-    font-weight: 600;
+    font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em;
+    color: #64748b; margin-bottom: 0.5rem; font-weight: 600;
 }
 .result-text {
-    font-size: 1.1rem;
-    line-height: 1.6;
-    color: #334155;
+    font-size: 1.1rem; line-height: 1.6; color: #334155;
 }
 .stButton>button {
-    width: 100%;
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-    color: white;
-    border: none;
-    padding: 0.75rem 1.5rem;
-    font-weight: 600;
-    border-radius: 8px;
-    transition: all 0.2s ease;
+    width: 100%; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white; border: none; padding: 0.75rem 1.5rem; font-weight: 600;
+    border-radius: 8px; transition: all 0.2s ease;
     box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
 }
 .stButton>button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 15px -3px rgba(37,99,235,0.1);
+    transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(37,99,235,0.1);
 }
-
-/* Tabs on mobile */
 .stTabs [data-baseweb="tab-list"] {gap: 8px;}
 .stTabs [data-baseweb="tab"] {padding: 10px 20px; background-color: #f1f5f9; border-radius: 8px;}
 .stTabs [aria-selected="true"] {background-color: #3b82f6; color: white;}
@@ -77,7 +61,7 @@ footer:after, .st-emotion-cache-6qob1r, .st-emotion-cache-1v0mbdj, [data-testid=
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# CONFIGURATION & APP INFO
+# APP CONFIG & LANG MAPS
 # -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="Linguist Pro",
@@ -104,9 +88,6 @@ LANG_CODES = {
     "Gujarati": "gu", "Punjabi": "pa"
 }
 
-# -----------------------------------------------------------------------------
-# BACKEND FUNCTIONS
-# -----------------------------------------------------------------------------
 @st.cache_resource(show_spinner=False)
 def load_whisper():
     return whisper.load_model("base")
@@ -202,18 +183,18 @@ if 'model' not in st.session_state:
 
 st.markdown("""
     <div style="text-align: center; margin-bottom: 2rem;">
-        <h1 style="font-size: 2.5rem; margin-bottom: 0.5rem;">🎙️ Linguist Pro</h1>
-        <p style="color: #64748b; font-size: 1.1rem;">Professional Voice Translation</p>
+        <h1 style="font-size: 2.3rem; margin-bottom: 0.2rem;">🎙️ Linguist Pro</h1>
+        <p style="color: #64748b; font-size: 1.08rem;">Professional Voice Translation</p>
     </div>
 """, unsafe_allow_html=True)
 
 col1, col2, col3 = st.columns([4, 1, 4])
 with col1:
-    src_lang = st.selectbox("Source Language", list(LANG_CODES.keys()), index=1)
+    src_lang = st.selectbox("From", list(LANG_CODES.keys()), index=1)
 with col2:
-    st.markdown("<div style='text-align: center; padding-top: 1.8rem; color: #94a3b8; font-size: 1.5rem;'>→</div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; padding-top: 1.8rem; color: #94a3b8; font-size: 1.4rem;'>→</div>", unsafe_allow_html=True)
 with col3:
-    tgt_lang = st.selectbox("Target Language", list(LANG_CODES.keys()), index=0)
+    tgt_lang = st.selectbox("To", list(LANG_CODES.keys()), index=0)
 
 st.markdown("###")
 st.markdown("**📥 Audio Input**")
