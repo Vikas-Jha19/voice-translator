@@ -2,3 +2,4 @@ streamlit
 openai-whisper
 gtts
 deep-translator
+edge-tts
