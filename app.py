@@ -3,6 +3,7 @@ import whisper
 import tempfile
 import asyncio
 import edge_tts
+from gtts import gTTS
 from deep_translator import GoogleTranslator
 import os
 
@@ -16,18 +17,18 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# VERIFIED Edge TTS Voices (tested and working)
+# Edge TTS Voices (will fallback to gTTS if unavailable)
 VOICE_MAP = {
     "Hindi": "hi-IN-SwaraNeural",
     "English": "en-IN-NeerjaNeural",
     "Tamil": "ta-IN-PallaviNeural",
     "Telugu": "te-IN-ShrutiNeural",
-    "Kannada": "kn-IN-SapnaNeural",  # Fixed
+    "Kannada": "kn-IN-SapnaNeural",
     "Malayalam": "ml-IN-SobhanaNeural",
     "Marathi": "mr-IN-AarohiNeural",
-    "Bengali": "bn-IN-BashkarNeural",  # Fixed
+    "Bengali": "bn-IN-BashkarNeural",
     "Gujarati": "gu-IN-DhwaniNeural",
-    "Punjabi": "pa-IN-GurleenNeural"  # Fixed
+    "Punjabi": "pa-IN-GurleenNeural"
 }
 
 LANG_CODES = {
@@ -37,7 +38,7 @@ LANG_CODES = {
 }
 
 # -----------------------------------------------------------------------------
-# PROFESSIONAL STYLING (CSS INJECTION)
+# PROFESSIONAL STYLING
 # -----------------------------------------------------------------------------
 st.markdown("""
 <style>
@@ -75,7 +76,6 @@ st.markdown("""
     .stButton>button:hover {
         transform: translateY(-1px);
         box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.3);
-        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
     }
 
     .result-card {
@@ -150,55 +150,57 @@ st.markdown("""
 def load_whisper():
     return whisper.load_model("base")
 
-async def generate_speech_async(text, voice, output_path):
-    """Generate High-Quality Neural Speech"""
-    # Validate inputs
-    if not text or not text.strip():
-        raise ValueError("Text is empty")
-    
-    # Create communicate object with rate and volume
-    communicate = edge_tts.Communicate(
-        text=text.strip(),
-        voice=voice,
-        rate="+0%",
-        volume="+0%"
-    )
-    await communicate.save(output_path)
-
-def generate_speech(text, voice, output_path):
-    """Sync wrapper for Edge TTS with error handling"""
+async def try_edge_tts(text, voice, output_path):
+    """Try Edge TTS (may be blocked on some platforms)"""
     try:
-        # Validate text
-        if not text or not text.strip():
-            st.error("Translation text is empty")
-            return False
-        
-        # Debug info (remove in production)
-        st.info(f"Generating speech: '{text[:50]}...' with voice: {voice}")
-        
-        # Run async function
+        communicate = edge_tts.Communicate(text=text.strip(), voice=voice)
+        await communicate.save(output_path)
+        return True
+    except:
+        return False
+
+def generate_speech_gtts(text, lang_code, output_path):
+    """Fallback to Google TTS (always works)"""
+    try:
+        tts = gTTS(text=text, lang=lang_code, slow=False)
+        tts.save(output_path)
+        return True
+    except:
+        return False
+
+def generate_speech(text, tgt_lang):
+    """Generate speech with automatic fallback"""
+    if not text or not text.strip():
+        return None, "Empty text"
+    
+    output_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3").name
+    
+    # Try Edge TTS first (better quality)
+    voice = VOICE_MAP.get(tgt_lang)
+    lang_code = LANG_CODES.get(tgt_lang, "en")
+    
+    try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(generate_speech_async(text, voice, output_path))
+        success = loop.run_until_complete(try_edge_tts(text, voice, output_path))
         loop.close()
         
-        # Verify output file was created
-        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-            st.error(f"TTS output file not created or empty")
-            return False
-        
-        return True
-        
-    except Exception as e:
-        st.error(f"TTS Error: {str(e)}")
-        import traceback
-        st.code(traceback.format_exc())
-        return False
+        if success and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            return output_path, None  # Edge TTS worked!
+    except:
+        pass  # Edge TTS failed, try fallback
+    
+    # Fallback to Google TTS (reliable)
+    success = generate_speech_gtts(text, lang_code, output_path)
+    
+    if success and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+        return output_path, None
+    
+    return None, "TTS generation failed"
 
 def process_audio(audio_input, src_lang, tgt_lang, model):
     """Main Processing Pipeline"""
     audio_path = None
-    output_audio_path = None
     
     try:
         # 1. Save Audio
@@ -230,18 +232,14 @@ def process_audio(audio_input, src_lang, tgt_lang, model):
         translator = GoogleTranslator(source=src_code, target=tgt_code)
         translated_text = translator.translate(source_text)
         
-        # Validate translation
         if not translated_text or not translated_text.strip():
             return source_text, source_text, None, "Translation failed"
 
-        # 4. TTS
-        output_audio_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3").name
-        tgt_voice = VOICE_MAP.get(tgt_lang, "en-IN-NeerjaNeural")
+        # 4. TTS (with automatic fallback)
+        output_audio_path, tts_error = generate_speech(translated_text, tgt_lang)
         
-        success = generate_speech(translated_text, tgt_voice, output_audio_path)
-        
-        if not success:
-            return source_text, translated_text, None, "TTS generation failed"
+        if not output_audio_path:
+            return source_text, translated_text, None, tts_error
         
         # Cleanup input
         if audio_path and os.path.exists(audio_path):
@@ -253,8 +251,6 @@ def process_audio(audio_input, src_lang, tgt_lang, model):
         # Cleanup
         if audio_path and os.path.exists(audio_path):
             os.unlink(audio_path)
-        if output_audio_path and os.path.exists(output_audio_path):
-            os.unlink(output_audio_path)
         return None, None, None, f"Error: {str(e)}"
 
 # -----------------------------------------------------------------------------
@@ -271,7 +267,7 @@ def main():
     st.markdown("""
         <div style="text-align: center; margin-bottom: 2rem;">
             <h1 style="font-size: 2.5rem; margin-bottom: 0.5rem;">🎙️ Linguist Pro</h1>
-            <p style="color: #64748b; font-size: 1.1rem;">Professional Real-time Voice Translation</p>
+            <p style="color: #64748b; font-size: 1.1rem;">Professional Voice Translation</p>
         </div>
     """, unsafe_allow_html=True)
 
@@ -310,14 +306,7 @@ def main():
             return
 
         # Process
-        with st.spinner(""):
-            st.markdown("""
-                <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; border: 1px solid #bfdbfe; color: #1e40af; display: flex; align-items: center; gap: 10px;">
-                    <div class="spinner"></div>
-                    <span>Processing translation...</span>
-                </div>
-            """, unsafe_allow_html=True)
-
+        with st.spinner("Processing translation..."):
             src_text, tgt_text, audio_path, error = process_audio(
                 audio_data, src_lang, tgt_lang, st.session_state.model
             )
@@ -365,7 +354,7 @@ def main():
     st.markdown("---")
     st.markdown("""
         <div style="text-align: center; color: #94a3b8; font-size: 0.9rem;">
-            <p>🌐 10 Indian languages • ⚡ Neural voice synthesis</p>
+            <p>🌐 10 Indian languages • ⚡ High-quality synthesis</p>
         </div>
     """, unsafe_allow_html=True)
 
