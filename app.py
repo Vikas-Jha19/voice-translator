@@ -1,6 +1,6 @@
 """
 Multilingual Voice Translation System
-State-of-the-Art Models: Whisper Small + NLLB
+State-of-the-Art Models: Whisper Small + NLLB-600M
 """
 
 import streamlit as st
@@ -26,11 +26,11 @@ def load_models():
     # Use Whisper Small (best quality that fits in 1GB)
     asr_model = whisper.load_model("small")
     
-    # Use NLLB for better translation quality
+    # Use NLLB for better translation quality - FIXED deprecation
     translator = pipeline(
         "translation",
         model="facebook/nllb-200-distilled-600M",
-        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
+        model_kwargs={"torch_dtype": torch.float16 if torch.cuda.is_available() else torch.float32}
     )
     
     return asr_model, translator
@@ -222,6 +222,7 @@ st.markdown("""
 - **Translation:** Meta NLLB-200-distilled-600M (600M parameters)
   - BLEU score 35+ for Indian language pairs
   - Supports 200+ languages
+  - Better than Google Translate for low-resource languages
 
 - **TTS:** Google Text-to-Speech
   - Natural voice synthesis
@@ -229,4 +230,10 @@ st.markdown("""
 
 **🌐 Supported Languages:**
 Hindi, English, Tamil, Telugu, Kannada, Malayalam, Marathi, Bengali, Gujarati, Punjabi
+
+**⚡ Features:**
+- Real-time progress tracking
+- Beam search for optimal transcription
+- Professional UI with performance metrics
+- File upload + browser recording support
 """)
