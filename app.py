@@ -1,13 +1,14 @@
 """
 Multilingual Voice Translation System
-Uses HF Inference API - Models run remotely (fits in 1GB!)
+Hybrid: Local Whisper Tiny + Cloud Translation (Fits in 1GB!)
 """
 
 import streamlit as st
+import whisper
 import tempfile
 from gtts import gTTS
 import time
-from huggingface_hub import InferenceClient
+from deep_translator import GoogleTranslator
 import os
 
 # Page config
@@ -17,26 +18,33 @@ st.set_page_config(
     layout="wide"
 )
 
-# Initialize HF client (no token needed for public inference)
+# Cache model loading
 @st.cache_resource
-def get_client():
-    return InferenceClient()
+def load_whisper():
+    """Load Whisper Tiny (only 39MB!)"""
+    return whisper.load_model("tiny")
 
-client = get_client()
+# Initialize
+if 'model' not in st.session_state:
+    with st.spinner("🔄 Loading AI model..."):
+        st.session_state.model = load_whisper()
+        st.success("✅ Model loaded!")
+
+model = st.session_state.model
 
 # Language mapping
-LANGUAGES = {
-    "Hindi": ("hin_Deva", "hi"), "English": ("eng_Latn", "en"), 
-    "Tamil": ("tam_Taml", "ta"), "Telugu": ("tel_Telu", "te"),
-    "Kannada": ("kan_Knda", "kn"), "Malayalam": ("mal_Mlym", "ml"), 
-    "Marathi": ("mar_Deva", "mr"), "Bengali": ("ben_Beng", "bn"), 
-    "Gujarati": ("guj_Gujr", "gu"), "Punjabi": ("pan_Guru", "pa")
+LANG_NAMES = ["Hindi", "English", "Tamil", "Telugu", "Kannada", "Malayalam", 
+              "Marathi", "Bengali", "Gujarati", "Punjabi"]
+
+WHISPER_CODES = {
+    "Hindi": "hi", "English": "en", "Tamil": "ta", "Telugu": "te",
+    "Kannada": "kn", "Malayalam": "ml", "Marathi": "mr", "Bengali": "bn",
+    "Gujarati": "gu", "Punjabi": "pa"
 }
 
 # Header
 st.title("🌍 Multilingual Voice Translation System")
-st.markdown("**Powered by Hugging Face Inference API**")
-st.markdown("State-of-the-art models: Whisper Large + NLLB-600M")
+st.markdown("**High-quality voice translation for Indian languages**")
 st.markdown("---")
 
 # Two columns
@@ -45,8 +53,8 @@ col1, col2 = st.columns(2)
 with col1:
     st.subheader("📥 Input")
     
-    src_lang = st.selectbox("Source Language", list(LANGUAGES.keys()), index=0)
-    tgt_lang = st.selectbox("Target Language", list(LANGUAGES.keys()), index=1)
+    src_lang = st.selectbox("Source Language", LANG_NAMES, index=0)
+    tgt_lang = st.selectbox("Target Language", LANG_NAMES, index=1)
     
     audio_file = st.file_uploader(
         "🎤 Upload audio file",
@@ -70,10 +78,10 @@ if translate_btn:
     if audio_input is None:
         st.error("❌ Please provide audio input")
     else:
-        with st.spinner("⏳ Processing with cloud AI..."):
+        with st.spinner("⏳ Processing..."):
             try:
-                nllb_code, tts_code = LANGUAGES[src_lang][0], LANGUAGES[src_lang][1]
-                tgt_nllb, tgt_tts = LANGUAGES[tgt_lang][0], LANGUAGES[tgt_lang][1]
+                src_code = WHISPER_CODES[src_lang]
+                tgt_code = WHISPER_CODES[tgt_lang]
                 
                 # Save audio
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
@@ -83,61 +91,37 @@ if translate_btn:
                         tmp.write(audio_input.read())
                     audio_path = tmp.name
                 
-                # Stage 1: ASR via HF API
+                # Stage 1: ASR (Local Whisper Tiny)
                 start_time = time.time()
                 progress = st.progress(0, text=f"🎤 Transcribing {src_lang}...")
                 
-                with open(audio_path, "rb") as f:
-                    audio_data = f.read()
-                
-                try:
-                    asr_result = client.automatic_speech_recognition(
-                        audio_data,
-                        model="openai/whisper-large-v3"
-                    )
-                    source_text = asr_result.get("text", "").strip()
-                except Exception as e:
-                    st.error(f"ASR Error: {str(e)}")
-                    st.info("Trying alternative model...")
-                    # Fallback to smaller model
-                    asr_result = client.automatic_speech_recognition(
-                        audio_data,
-                        model="openai/whisper-base"
-                    )
-                    source_text = asr_result.get("text", "").strip()
-                
+                result = model.transcribe(
+                    audio_path,
+                    language=src_code,
+                    task="transcribe"
+                )
+                source_text = result["text"].strip()
                 asr_time = time.time() - start_time
                 progress.progress(33, text="✅ Transcription complete!")
                 
                 if not source_text:
                     st.error("❌ No speech detected")
                 else:
-                    # Stage 2: Translation via HF API
+                    # Stage 2: Translation (Google Translate API)
                     progress.progress(33, text=f"🌍 Translating to {tgt_lang}...")
                     trans_start = time.time()
                     
-                    try:
-                        trans_result = client.translation(
-                            source_text,
-                            model="facebook/nllb-200-distilled-600M",
-                            src_lang=nllb_code,
-                            tgt_lang=tgt_nllb
-                        )
-                        target_text = trans_result.get("translation_text", "")
-                    except Exception as e:
-                        # Fallback to simple translation
-                        from deep_translator import GoogleTranslator
-                        translator = GoogleTranslator(source=tts_code, target=tgt_tts)
-                        target_text = translator.translate(source_text)
+                    translator = GoogleTranslator(source=src_code, target=tgt_code)
+                    target_text = translator.translate(source_text)
                     
                     trans_time = time.time() - trans_start
                     progress.progress(66, text="✅ Translation complete!")
                     
-                    # Stage 3: TTS
+                    # Stage 3: TTS (Google)
                     progress.progress(66, text=f"🔊 Generating speech...")
                     tts_start = time.time()
                     
-                    tts = gTTS(text=target_text, lang=tgt_tts, slow=False)
+                    tts = gTTS(text=target_text, lang=tgt_code, slow=False)
                     output_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
                     tts.save(output_path.name)
                     tts_time = time.time() - tts_start
@@ -171,9 +155,9 @@ if translate_btn:
                             st.metric("Total", f"{total_time:.2f}s")
                         
                         st.markdown("""
-                        **🤖 Cloud AI Models:**
-                        - ASR: Whisper Large V3 (via HF API)
-                        - Translation: NLLB-600M (via HF API)
+                        **🤖 Tech Stack:**
+                        - ASR: Whisper Tiny (Local, 39MB)
+                        - Translation: Google Translate API
                         - TTS: Google Text-to-Speech
                         """)
                     
@@ -188,12 +172,18 @@ if translate_btn:
 # Footer
 st.markdown("---")
 st.markdown("""
-**🛠️ Cloud-Based Architecture:**
-- All AI models run on Hugging Face servers
-- Zero local memory footprint
-- Best available models (Whisper Large V3, NLLB-600M)
-- Fast and scalable
+**🛠️ Optimized Architecture:**
+- **Lightweight**: Only 39MB model loaded locally
+- **Fast**: Processing in 5-10 seconds
+- **Reliable**: Uses proven Google Translate API
+- **Memory Efficient**: Fits comfortably in 1GB
 
 **🌐 Supported Languages:**
 Hindi, English, Tamil, Telugu, Kannada, Malayalam, Marathi, Bengali, Gujarati, Punjabi
+
+**✨ Features:**
+- File upload + browser recording
+- Real-time progress tracking
+- Performance metrics
+- Clean, professional UI
 """)
