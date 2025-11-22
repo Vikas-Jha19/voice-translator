@@ -1,7 +1,4 @@
 streamlit
-openai-whisper
 gtts
-transformers
-torch
-sentencepiece
-accelerate
+huggingface-hub
+deep-translator
