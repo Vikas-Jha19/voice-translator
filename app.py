@@ -1,5 +1,5 @@
 """
-Professional Voice Translation App
+Professional Voice Translation App (Premium UI)
 """
 
 import streamlit as st
@@ -10,96 +10,108 @@ import time
 from deep_translator import GoogleTranslator
 import os
 
-# Professional page config
+# Page config
 st.set_page_config(
     page_title="Voice Translator",
     page_icon="🌐",
     layout="centered",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed",
 )
 
-# Custom CSS for professional look
+# NEW PROFESSIONAL UI CSS
 st.markdown("""
 <style>
-    /* Hide Streamlit branding */
+    /* Hide Streamlit elements */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    
-    /* Custom styling */
-    .stApp {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+
+    /* Global font & smoothing */
+    html, body, [class*="css"] {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
     }
-    
+
+    /* App Background */
+    .stApp {
+        background: #F3F4F6;
+    }
+
     .main-container {
         background: white;
-        padding: 2rem;
-        border-radius: 20px;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-        margin: 2rem auto;
+        padding: 2.2rem 2.5rem;
+        border-radius: 14px;
+        max-width: 800px;
+        margin: 2.5rem auto;
+        box-shadow: 0 4px 25px rgba(0,0,0,0.07);
     }
-    
+
     h1 {
-        color: #2d3748;
-        font-weight: 700;
-        text-align: center;
-        margin-bottom: 0.5rem;
-    }
-    
-    .subtitle {
-        text-align: center;
-        color: #718096;
-        font-size: 1.1rem;
-        margin-bottom: 2rem;
-    }
-    
-    .stButton>button {
-        width: 100%;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
+        color: #111827;
         font-weight: 600;
-        padding: 0.75rem 2rem;
-        border-radius: 10px;
-        border: none;
-        font-size: 1.1rem;
-        transition: transform 0.2s;
+        text-align: center;
+        margin-bottom: 0.3rem;
+        font-size: 1.9rem;
     }
-    
+
+    .subtitle {
+        color: #6B7280;
+        text-align: center;
+        margin-bottom: 1.5rem;
+        font-size: 1.05rem;
+    }
+
+    /* Buttons */
+    .stButton>button {
+        background: #2563EB !important;
+        color: white !important;
+        font-weight: 600;
+        width: 100%;
+        padding: 0.7rem;
+        border-radius: 8px;
+        border: 1px solid #1D4ED8;
+        transition: 0.15s;
+        font-size: 1rem;
+    }
+
     .stButton>button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        background: #1D4ED8 !important;
+        box-shadow: 0 5px 12px rgba(29,78,216,0.15);
+        transform: translateY(-1px);
     }
-    
-    .success-box {
-        background: #f0fdf4;
-        border-left: 4px solid #22c55e;
+
+    /* Info + success boxes */
+    .info-box, .success-box {
         padding: 1rem;
         border-radius: 8px;
-        margin: 1rem 0;
+        margin-top: 1rem;
+        line-height: 1.5;
+        font-size: 0.95rem;
     }
-    
+
     .info-box {
-        background: #eff6ff;
-        border-left: 4px solid #3b82f6;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
+        background: #EFF6FF;
+        border-left: 4px solid #2563EB;
+    }
+
+    .success-box {
+        background: #F0FDF4;
+        border-left: 4px solid #16A34A;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Load model silently
 @st.cache_resource
 def load_model():
     return whisper.load_model("base")
 
-if 'model' not in st.session_state:
-    with st.spinner(""):
+if "model" not in st.session_state:
+    with st.spinner("Loading model..."):
         st.session_state.model = load_model()
 
 model = st.session_state.model
 
-# Languages
-LANGUAGES = ["Hindi", "English", "Tamil", "Telugu", "Kannada", "Malayalam", 
+# Language options
+LANGUAGES = ["Hindi", "English", "Tamil", "Telugu", "Kannada", "Malayalam",
              "Marathi", "Bengali", "Gujarati", "Punjabi"]
 
 CODES = {
@@ -108,64 +120,58 @@ CODES = {
     "Gujarati": "gu", "Punjabi": "pa"
 }
 
-# Main UI
+# UI Container
 st.markdown('<div class="main-container">', unsafe_allow_html=True)
 
-# Header
 st.title("🌐 Voice Translator")
-st.markdown('<p class="subtitle">Instant voice translation for Indian languages</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Professional multilingual speech translation</p>', unsafe_allow_html=True)
 
-# Language selection
 col1, col2 = st.columns(2)
 with col1:
-    src_lang = st.selectbox("From", LANGUAGES, label_visibility="visible")
+    src_lang = st.selectbox("Translate from", LANGUAGES)
 with col2:
-    tgt_lang = st.selectbox("To", LANGUAGES, index=1, label_visibility="visible")
+    tgt_lang = st.selectbox("Translate to", LANGUAGES, index=1)
 
 st.markdown("---")
 
-# Audio input section
-st.markdown("### 🎤 Record or Upload Audio")
+st.subheader("🎤 Input Speech")
 
-tab1, tab2 = st.tabs(["📁 Upload File", "🎙️ Record"])
+tab1, tab2 = st.tabs(["Upload File", "Record Audio"])
 
 with tab1:
     audio_file = st.file_uploader(
-        "Choose an audio file",
-        type=["wav", "mp3", "m4a", "ogg"],
-        label_visibility="collapsed"
+        "Upload Audio",
+        type=["wav", "mp3", "m4a", "ogg"]
     )
-
 with tab2:
-    audio_bytes = st.audio_input("Click to record", label_visibility="collapsed")
+    audio_bytes = st.audio_input("Record Audio")
 
 st.markdown("---")
 
-# Translate button
-translate_btn = st.button("✨ Translate Now", type="primary")
+translate_btn = st.button("Translate Now")
 
-# Processing
+# Logic
 if translate_btn:
-    audio_input = audio_bytes if audio_bytes else audio_file
-    
-    if audio_input is None:
-        st.warning("⚠️ Please record or upload audio first")
+    input_audio = audio_bytes if audio_bytes else audio_file
+
+    if input_audio is None:
+        st.warning("Please upload or record audio first.")
     else:
-        with st.spinner("🔄 Translating..."):
+        with st.spinner("Processing..."):
             try:
                 src_code = CODES[src_lang]
                 tgt_code = CODES[tgt_lang]
-                
-                # Save audio
+
+                # Save audio temp
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                    if isinstance(audio_input, bytes):
-                        tmp.write(audio_input)
+                    if isinstance(input_audio, bytes):
+                        tmp.write(input_audio)
                     else:
-                        tmp.write(audio_input.read())
+                        tmp.write(input_audio.read())
                     audio_path = tmp.name
-                
-                # Process
-                result = model.transcribe(
+
+                # Transcribe
+                res = model.transcribe(
                     audio_path,
                     language=src_code,
                     task="transcribe",
@@ -174,59 +180,38 @@ if translate_btn:
                     beam_size=5,
                     temperature=0.0
                 )
-                source_text = result["text"].strip()
-                
-                if not source_text:
-                    st.error("❌ Could not detect speech. Please try again with clearer audio.")
+                src_text = res["text"].strip()
+
+                if not src_text:
+                    st.error("No speech detected. Try again.")
                 else:
                     # Translate
                     translator = GoogleTranslator(source=src_code, target=tgt_code)
-                    target_text = translator.translate(source_text)
-                    
+                    translated = translator.translate(src_text)
+
                     # TTS
-                    tts = gTTS(text=target_text, lang=tgt_code, slow=False)
-                    output_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-                    tts.save(output_path.name)
-                    
-                    # Display results
-                    st.markdown("### ✅ Translation Complete")
-                    
-                    # Audio player
-                    with open(output_path.name, "rb") as audio_out:
-                        st.audio(audio_out.read(), format="audio/mp3")
-                    
-                    st.markdown("---")
-                    
-                    # Original text
-                    st.markdown(f"""
-                    <div class="info-box">
-                        <strong>🗣️ Original ({src_lang})</strong><br>
-                        {source_text}
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # Translation
-                    st.markdown(f"""
-                    <div class="success-box">
-                        <strong>🌍 Translation ({tgt_lang})</strong><br>
-                        {target_text}
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # Cleanup
+                    tts = gTTS(text=translated, lang=tgt_code)
+                    out_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+                    tts.save(out_file.name)
+
+                    st.subheader("✔ Audio Output")
+                    with open(out_file.name, "rb") as a:
+                        st.audio(a.read())
+
+                    # Display text sections
+                    st.markdown(
+                        f"<div class='info-box'><strong>Original ({src_lang})</strong><br>{src_text}</div>",
+                        unsafe_allow_html=True
+                    )
+                    st.markdown(
+                        f"<div class='success-box'><strong>Translation ({tgt_lang})</strong><br>{translated}</div>",
+                        unsafe_allow_html=True
+                    )
+
                     os.unlink(audio_path)
-                    os.unlink(output_path.name)
-                    
+                    os.unlink(out_file.name)
+
             except Exception as e:
-                st.error("❌ Translation failed. Please try again.")
+                st.error("Translation failed. Try again.")
 
-# Footer
-st.markdown("---")
-st.markdown("""
-<div style="text-align: center; color: #718096; font-size: 0.9rem;">
-    <p>🌐 Supports 10 Indian languages<br>
-    ⚡ Fast & accurate translations</p>
-</div>
-""", unsafe_allow_html=True)
-
-st.markdown('</div>', unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
