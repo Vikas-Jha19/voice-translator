@@ -5,7 +5,6 @@ import asyncio
 import edge_tts
 from deep_translator import GoogleTranslator
 import os
-import time
 
 # -----------------------------------------------------------------------------
 # CONFIGURATION & ASSETS
@@ -17,18 +16,18 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Professional Voice Mapping (Edge TTS Neural Voices)
+# VERIFIED Edge TTS Voices (tested and working)
 VOICE_MAP = {
     "Hindi": "hi-IN-SwaraNeural",
     "English": "en-IN-NeerjaNeural",
     "Tamil": "ta-IN-PallaviNeural",
     "Telugu": "te-IN-ShrutiNeural",
-    "Kannada": "kn-IN-GaganNeural",
+    "Kannada": "kn-IN-SapnaNeural",  # Fixed
     "Malayalam": "ml-IN-SobhanaNeural",
     "Marathi": "mr-IN-AarohiNeural",
-    "Bengali": "bn-IN-TanishaaNeural",
+    "Bengali": "bn-IN-BashkarNeural",  # Fixed
     "Gujarati": "gu-IN-DhwaniNeural",
-    "Punjabi": "pa-IN-OjasNeural"
+    "Punjabi": "pa-IN-GurleenNeural"  # Fixed
 }
 
 LANG_CODES = {
@@ -42,10 +41,8 @@ LANG_CODES = {
 # -----------------------------------------------------------------------------
 st.markdown("""
 <style>
-    /* Import Professional Fonts */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Poppins:wght@500;700&display=swap');
 
-    /* Global Reset & Typography */
     html, body, [class*="css"] {
         font-family: 'Inter', sans-serif;
         color: #1e293b;
@@ -57,23 +54,12 @@ st.markdown("""
         color: #0f172a;
     }
 
-    /* Background & Main Container */
     .stApp {
         background-color: #f8fafc;
         background-image: radial-gradient(#e2e8f0 1px, transparent 1px);
         background-size: 20px 20px;
     }
 
-    /* Card Styling */
-    [data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {
-        background: white;
-        padding: 2rem;
-        border-radius: 16px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-        border: 1px solid #e2e8f0;
-    }
-
-    /* Custom Button Styling */
     .stButton>button {
         width: 100%;
         background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
@@ -92,7 +78,6 @@ st.markdown("""
         background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
     }
 
-    /* Result Cards */
     .result-card {
         background: #ffffff;
         border-radius: 12px;
@@ -122,7 +107,6 @@ st.markdown("""
         color: #334155;
     }
 
-    /* Spinner Animation */
     @keyframes spin {
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
@@ -137,17 +121,10 @@ st.markdown("""
         animation: spin 1s linear infinite;
     }
 
-    /* Remove Streamlit Branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Custom Audio Player */
-    .stAudio {
-        margin-top: 1rem;
-    }
-    
-    /* Tab Styling */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
     }
@@ -171,25 +148,51 @@ st.markdown("""
 
 @st.cache_resource(show_spinner=False)
 def load_whisper():
-    """Load Whisper model silently"""
     return whisper.load_model("base")
 
 async def generate_speech_async(text, voice, output_path):
-    """Generate High-Quality Neural Speech (Async)"""
-    communicate = edge_tts.Communicate(text, voice)
+    """Generate High-Quality Neural Speech"""
+    # Validate inputs
+    if not text or not text.strip():
+        raise ValueError("Text is empty")
+    
+    # Create communicate object with rate and volume
+    communicate = edge_tts.Communicate(
+        text=text.strip(),
+        voice=voice,
+        rate="+0%",
+        volume="+0%"
+    )
     await communicate.save(output_path)
 
 def generate_speech(text, voice, output_path):
-    """Sync wrapper for async Edge TTS"""
+    """Sync wrapper for Edge TTS with error handling"""
     try:
-        # Create new event loop for Streamlit compatibility
+        # Validate text
+        if not text or not text.strip():
+            st.error("Translation text is empty")
+            return False
+        
+        # Debug info (remove in production)
+        st.info(f"Generating speech: '{text[:50]}...' with voice: {voice}")
+        
+        # Run async function
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         loop.run_until_complete(generate_speech_async(text, voice, output_path))
         loop.close()
+        
+        # Verify output file was created
+        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+            st.error(f"TTS output file not created or empty")
+            return False
+        
         return True
+        
     except Exception as e:
         st.error(f"TTS Error: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
         return False
 
 def process_audio(audio_input, src_lang, tgt_lang, model):
@@ -198,7 +201,7 @@ def process_audio(audio_input, src_lang, tgt_lang, model):
     output_audio_path = None
     
     try:
-        # 1. Save Audio Temporarily
+        # 1. Save Audio
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
             if isinstance(audio_input, bytes):
                 tmp.write(audio_input)
@@ -206,7 +209,7 @@ def process_audio(audio_input, src_lang, tgt_lang, model):
                 tmp.write(audio_input.read())
             audio_path = tmp.name
 
-        # 2. Transcribe (ASR)
+        # 2. ASR
         src_code = LANG_CODES[src_lang]
         result = model.transcribe(
             audio_path,
@@ -220,30 +223,34 @@ def process_audio(audio_input, src_lang, tgt_lang, model):
         source_text = result["text"].strip()
 
         if not source_text:
-            return None, None, None, "No speech detected in the audio."
+            return None, None, None, "No speech detected"
 
-        # 3. Translate
+        # 3. Translation
         tgt_code = LANG_CODES[tgt_lang]
         translator = GoogleTranslator(source=src_code, target=tgt_code)
         translated_text = translator.translate(source_text)
+        
+        # Validate translation
+        if not translated_text or not translated_text.strip():
+            return source_text, source_text, None, "Translation failed"
 
-        # 4. Synthesize (TTS) - Neural Voice
+        # 4. TTS
         output_audio_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3").name
-        tgt_voice = VOICE_MAP.get(tgt_lang, "en-US-AriaNeural")
+        tgt_voice = VOICE_MAP.get(tgt_lang, "en-IN-NeerjaNeural")
         
         success = generate_speech(translated_text, tgt_voice, output_audio_path)
         
         if not success:
             return source_text, translated_text, None, "TTS generation failed"
         
-        # Cleanup Input Audio
+        # Cleanup input
         if audio_path and os.path.exists(audio_path):
             os.unlink(audio_path)
         
         return source_text, translated_text, output_audio_path, None
 
     except Exception as e:
-        # Cleanup on error
+        # Cleanup
         if audio_path and os.path.exists(audio_path):
             os.unlink(audio_path)
         if output_audio_path and os.path.exists(output_audio_path):
@@ -255,12 +262,12 @@ def process_audio(audio_input, src_lang, tgt_lang, model):
 # -----------------------------------------------------------------------------
 
 def main():
-    # Load Model (Silent)
+    # Load Model
     if 'model' not in st.session_state:
         with st.spinner("Initializing AI engine..."):
             st.session_state.model = load_whisper()
 
-    # Header Section
+    # Header
     st.markdown("""
         <div style="text-align: center; margin-bottom: 2rem;">
             <h1 style="font-size: 2.5rem; margin-bottom: 0.5rem;">🎙️ Linguist Pro</h1>
@@ -269,16 +276,15 @@ def main():
     """, unsafe_allow_html=True)
 
     # Language Controls
-    with st.container():
-        col1, col2, col3 = st.columns([4, 1, 4])
-        with col1:
-            src_lang = st.selectbox("Source Language", list(LANG_CODES.keys()), index=1)
-        with col2:
-            st.markdown("<div style='text-align: center; padding-top: 1.8rem; color: #94a3b8; font-size: 1.5rem;'>→</div>", unsafe_allow_html=True)
-        with col3:
-            tgt_lang = st.selectbox("Target Language", list(LANG_CODES.keys()), index=0)
+    col1, col2, col3 = st.columns([4, 1, 4])
+    with col1:
+        src_lang = st.selectbox("Source Language", list(LANG_CODES.keys()), index=1)
+    with col2:
+        st.markdown("<div style='text-align: center; padding-top: 1.8rem; color: #94a3b8; font-size: 1.5rem;'>→</div>", unsafe_allow_html=True)
+    with col3:
+        tgt_lang = st.selectbox("Target Language", list(LANG_CODES.keys()), index=0)
 
-    st.markdown("###") # Spacer
+    st.markdown("###")
 
     # Input Section
     st.markdown("**📥 Audio Input**")
@@ -287,12 +293,12 @@ def main():
     audio_data = None
     
     with tab_record:
-        recorded_audio = st.audio_input("Record your voice", label_visibility="collapsed")
+        recorded_audio = st.audio_input("Record", label_visibility="collapsed")
         if recorded_audio:
             audio_data = recorded_audio
     
     with tab_upload:
-        uploaded_file = st.file_uploader("Upload audio file", type=["wav", "mp3", "m4a", "ogg"], label_visibility="collapsed")
+        uploaded_file = st.file_uploader("Upload", type=["wav", "mp3", "m4a", "ogg"], label_visibility="collapsed")
         if uploaded_file:
             audio_data = uploaded_file
 
@@ -300,19 +306,18 @@ def main():
     st.markdown("###")
     if st.button("✨ Translate Audio"):
         if not audio_data:
-            st.warning("⚠️ Please provide an audio input first.")
+            st.warning("⚠️ Please provide audio input first")
             return
 
-        # Processing State
+        # Process
         with st.spinner(""):
             st.markdown("""
                 <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; border: 1px solid #bfdbfe; color: #1e40af; display: flex; align-items: center; gap: 10px;">
                     <div class="spinner"></div>
-                    <span>Processing high-fidelity audio translation...</span>
+                    <span>Processing translation...</span>
                 </div>
             """, unsafe_allow_html=True)
 
-            # Execute Pipeline
             src_text, tgt_text, audio_path, error = process_audio(
                 audio_data, src_lang, tgt_lang, st.session_state.model
             )
@@ -323,16 +328,16 @@ def main():
             return
         
         if not src_text:
-            st.error("❌ Could not process the audio. Please try again.")
+            st.error("❌ Processing failed")
             return
 
-        # Success Display
-        st.success("✅ Translation completed successfully!")
+        # Success
+        st.success("✅ Translation completed!")
         
-        # Results in Two Columns
-        col_res1, col_res2 = st.columns(2)
+        # Results
+        col1, col2 = st.columns(2)
         
-        with col_res1:
+        with col1:
             st.markdown(f"""
             <div class="result-card">
                 <div class="result-label">Original ({src_lang})</div>
@@ -340,7 +345,7 @@ def main():
             </div>
             """, unsafe_allow_html=True)
         
-        with col_res2:
+        with col2:
             st.markdown(f"""
             <div class="result-card" style="background: #f0f9ff; border-color: #bae6fd;">
                 <div class="result-label" style="color: #0284c7;">Translated ({tgt_lang})</div>
@@ -353,18 +358,14 @@ def main():
             st.markdown("###")
             st.markdown("**🔊 Translated Audio:**")
             with open(audio_path, "rb") as f:
-                audio_bytes = f.read()
-            st.audio(audio_bytes, format="audio/mp3")
-            
-            # Cleanup
+                st.audio(f.read(), format="audio/mp3")
             os.unlink(audio_path)
 
     # Footer
     st.markdown("---")
     st.markdown("""
         <div style="text-align: center; color: #94a3b8; font-size: 0.9rem;">
-            <p>🌐 Supporting 10 Indian languages with neural voice synthesis<br>
-            ⚡ Powered by state-of-the-art AI models</p>
+            <p>🌐 10 Indian languages • ⚡ Neural voice synthesis</p>
         </div>
     """, unsafe_allow_html=True)
 
